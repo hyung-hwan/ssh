@@ -1,4 +1,4 @@
-module github.com/gliderlabs/ssh
+module github.com/hyung-hwan/ssh
 
 go 1.20
 
