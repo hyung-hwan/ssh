@@ -1,8 +1,8 @@
 package ssh
 
 import (
+	"errors"
 	"io"
-	"log"
 	"net"
 	"strconv"
 	"sync"
@@ -105,7 +105,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 	case "tcpip-forward":
 		var reqPayload remoteForwardRequest
 		if err := gossh.Unmarshal(req.Payload, &reqPayload); err != nil {
-			// TODO: log parse failure
+			srv.logMsg("failed to unmarshal %s payload s from %s - %s", req.Type, conn.RemoteAddr().String(), err.Error())
 			return false, []byte{}
 		}
 		if srv.ReversePortForwardingCallback == nil || !srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort) {
@@ -114,9 +114,11 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 		addr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
-			// TODO: log listen failure
+			srv.logMsg("failed to listen on %s - %s", addr, err.Error())
 			return false, []byte{}
 		}
+
+		srv.logMsg("port forward started on %s for %s", addr, conn.RemoteAddr().String())
 		_, destPortStr, _ := net.SplitHostPort(ln.Addr().String())
 		destPort, _ := strconv.Atoi(destPortStr)
 		h.Lock()
@@ -135,7 +137,9 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			for {
 				c, err := ln.Accept()
 				if err != nil {
-					// TODO: log accept failure
+					if !errors.Is(err, net.ErrClosed) {
+						srv.logMsg("failed to accept connection on %s - %s", ln.Addr().String(), err.Error())
+					}
 					break
 				}
 				originAddr, orignPortStr, _ := net.SplitHostPort(c.RemoteAddr().String())
@@ -149,34 +153,43 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 				go func() {
 					ch, reqs, err := conn.OpenChannel(forwardedTCPChannelType, payload)
 					if err != nil {
-						// TODO: log failure to open channel
-						log.Println(err)
+						srv.logMsg("failed to open channel on %s:%d for %s:%d - %s", reqPayload.BindAddr, destPort, originAddr, originPort, err.Error())
 						c.Close()
 						return
 					}
+					srv.logMsg("opened channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
 					go gossh.DiscardRequests(reqs)
+
+					var wg sync.WaitGroup
+					wg.Add(1)
 					go func() {
+						defer wg.Done()
 						defer ch.Close()
 						defer c.Close()
 						io.Copy(ch, c)
 					}()
+					wg.Add(1)
 					go func() {
+						defer wg.Done()
 						defer ch.Close()
 						defer c.Close()
 						io.Copy(c, ch)
 					}()
+					wg.Wait()
+					srv.logMsg("closed channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
 				}()
 			}
 			h.Lock()
 			delete(h.forwards, addr)
 			h.Unlock()
+			srv.logMsg("port forward ended on %s for %s", addr, conn.RemoteAddr().String())
 		}()
 		return true, gossh.Marshal(&remoteForwardSuccess{uint32(destPort)})
 
 	case "cancel-tcpip-forward":
 		var reqPayload remoteForwardCancelRequest
 		if err := gossh.Unmarshal(req.Payload, &reqPayload); err != nil {
-			// TODO: log parse failure
+			srv.logMsg("failed to unmarshal %s payload from %s - %s", req.Type, conn.RemoteAddr().String(), err.Error())
 			return false, []byte{}
 		}
 		addr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
@@ -184,6 +197,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 		ln, ok := h.forwards[addr]
 		h.Unlock()
 		if ok {
+			srv.logMsg("port forward cancelled on %s for %s", addr, conn.RemoteAddr().String())
 			ln.Close()
 		}
 		return true, nil

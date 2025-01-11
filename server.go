@@ -51,6 +51,7 @@ type Server struct {
 	SessionRequestCallback        SessionRequestCallback        // callback for allowing or denying SSH sessions
 
 	ConnectionFailedCallback ConnectionFailedCallback // callback to report connection failures
+	LogCallback                   LogCallback
 
 	IdleTimeout time.Duration // connection timeout when no activity, none if empty
 	MaxTimeout  time.Duration // absolute connection timeout, none if empty
@@ -453,10 +454,18 @@ func (srv *Server) trackConn(c *gossh.ServerConn, add bool) {
 		srv.conns = make(map[*gossh.ServerConn]struct{})
 	}
 	if add {
+		srv.logMsg("connection opened from %s", c.RemoteAddr().String())
 		srv.conns[c] = struct{}{}
 		srv.connWg.Add(1)
 	} else {
 		delete(srv.conns, c)
 		srv.connWg.Done()
+		srv.logMsg("connection closed from %s", c.RemoteAddr().String())
+	}
+}
+
+func (srv *Server) logMsg(fmt string, args... interface{}) {
+	if srv.LogCallback != nil {
+		srv.LogCallback(fmt, args...)
 	}
 }
