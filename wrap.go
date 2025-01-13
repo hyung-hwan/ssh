@@ -31,3 +31,8 @@ func ParseAuthorizedKey(in []byte) (out PublicKey, comment string, options []str
 func ParsePublicKey(in []byte) (out PublicKey, err error) {
 	return gossh.ParsePublicKey(in)
 }
+
+func MarshalAuthorizedKey(key PublicKey) []byte {
+	return gossh.MarshalAuthorizedKey(key)
+}
+

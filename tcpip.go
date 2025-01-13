@@ -108,7 +108,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			srv.logMsg("failed to unmarshal %s payload s from %s - %s", req.Type, conn.RemoteAddr().String(), err.Error())
 			return false, []byte{}
 		}
-		if srv.ReversePortForwardingCallback == nil || !srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort) {
+		if srv.ReversePortForwardingCallback == nil || !srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort, 0) {
 			return false, []byte("port forwarding is disabled")
 		}
 		addr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
@@ -119,6 +119,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 		}
 
 		srv.logMsg("port forward started on %s for %s", addr, conn.RemoteAddr().String())
+		srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort, 1)
 		_, destPortStr, _ := net.SplitHostPort(ln.Addr().String())
 		destPort, _ := strconv.Atoi(destPortStr)
 		h.Lock()
@@ -182,6 +183,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			h.Lock()
 			delete(h.forwards, addr)
 			h.Unlock()
+			srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort, -1)
 			srv.logMsg("port forward ended on %s for %s", addr, conn.RemoteAddr().String())
 		}()
 		return true, gossh.Marshal(&remoteForwardSuccess{uint32(destPort)})

@@ -62,7 +62,7 @@ type ConnCallback func(ctx Context, conn net.Conn) net.Conn
 type LocalPortForwardingCallback func(ctx Context, destinationHost string, destinationPort uint32) bool
 
 // ReversePortForwardingCallback is a hook for allowing reverse port forwarding
-type ReversePortForwardingCallback func(ctx Context, bindHost string, bindPort uint32) bool
+type ReversePortForwardingCallback func(ctx Context, bindHost string, bindPort uint32, phase int) bool
 
 // ServerConfigCallback is a hook for creating custom default server configs
 type ServerConfigCallback func(ctx Context) *gossh.ServerConfig
