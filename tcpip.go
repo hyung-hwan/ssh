@@ -108,27 +108,37 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			srv.logMsg("failed to unmarshal %s payload s from %s - %s", req.Type, conn.RemoteAddr().String(), err.Error())
 			return false, []byte{}
 		}
-		if srv.ReversePortForwardingCallback == nil || !srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort, 0) {
+		if srv.ReversePortForwardingCallback == nil {
 			return false, []byte("port forwarding is disabled")
 		}
-		addr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
-		ln, err := net.Listen("tcp", addr)
+
+		addrstr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
+		addr, err := net.ResolveTCPAddr("tcp", addrstr)
+		if err != nil {
+			return false, []byte("port forwarding disabled - invalid address requested")
+		}
+
+		if !srv.ReversePortForwardingCallback(ctx, addr, 0) {
+			return false, []byte("port forwarding is rejected")
+		}
+
+		ln, err := net.ListenTCP("tcp", addr)
 		if err != nil {
 			srv.logMsg("failed to listen on %s - %s", addr, err.Error())
 			return false, []byte{}
 		}
 
 		srv.logMsg("port forward started on %s for %s", addr, conn.RemoteAddr().String())
-		srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort, 1)
+		srv.ReversePortForwardingCallback(ctx, addr, 1)
 		_, destPortStr, _ := net.SplitHostPort(ln.Addr().String())
 		destPort, _ := strconv.Atoi(destPortStr)
 		h.Lock()
-		h.forwards[addr] = ln
+		h.forwards[addrstr] = ln
 		h.Unlock()
 		go func() {
 			<-ctx.Done()
 			h.Lock()
-			ln, ok := h.forwards[addr]
+			ln, ok := h.forwards[addrstr]
 			h.Unlock()
 			if ok {
 				ln.Close()
@@ -181,9 +191,9 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 				}()
 			}
 			h.Lock()
-			delete(h.forwards, addr)
+			delete(h.forwards, addrstr)
 			h.Unlock()
-			srv.ReversePortForwardingCallback(ctx, reqPayload.BindAddr, reqPayload.BindPort, -1)
+			srv.ReversePortForwardingCallback(ctx, addr, -1)
 			srv.logMsg("port forward ended on %s for %s", addr, conn.RemoteAddr().String())
 		}()
 		return true, gossh.Marshal(&remoteForwardSuccess{uint32(destPort)})
