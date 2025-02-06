@@ -7,6 +7,8 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
+type SSHServerConfig = gossh.ServerConfig
+
 type Signal string
 
 // POSIX signals as listed in RFC 4254 Section 6.10.
@@ -65,7 +67,7 @@ type LocalPortForwardingCallback func(ctx Context, destinationHost string, desti
 type ReversePortForwardingCallback func(ctx Context, addr *net.TCPAddr, phase int, ln *net.TCPListener) bool
 
 // ServerConfigCallback is a hook for creating custom default server configs
-type ServerConfigCallback func(ctx Context) *gossh.ServerConfig
+type ServerConfigCallback func(ctx Context) *SSHServerConfig
 
 // ConnectionFailedCallback is a hook for reporting failed connections
 // Please note: the net.Conn is likely to be closed at this point
