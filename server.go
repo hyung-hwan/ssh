@@ -121,10 +121,11 @@ func (srv *Server) config(ctx Context) *gossh.ServerConfig {
 	defer srv.mu.RUnlock()
 
 	var config *gossh.ServerConfig
-	if srv.ServerConfigCallback == nil {
-		config = &gossh.ServerConfig{}
-	} else {
+	if srv.ServerConfigCallback != nil {
 		config = srv.ServerConfigCallback(ctx)
+	}
+	if config == nil { 
+		config = &gossh.ServerConfig{}
 	}
 	for _, signer := range srv.HostSigners {
 		config.AddHostKey(signer)
