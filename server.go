@@ -29,6 +29,12 @@ var DefaultChannelHandlers = map[string]ChannelHandler{
 	"session": DefaultSessionHandler,
 }
 
+type SSHAlgoConfig struct {
+	Ciphers []string
+	MACs []string
+	KeyExchanges []string
+}
+
 // Server defines parameters for running an SSH server. The zero value for
 // Server is a valid configuration. When both PasswordHandler and
 // PublicKeyHandler are nil, no client authentication is performed.
@@ -69,6 +75,8 @@ type Server struct {
 	// SubsystemHandlers are handlers which are similar to the usual SSH command
 	// handlers, but handle named subsystems.
 	SubsystemHandlers map[string]SubsystemHandler
+
+	AlgoConfig SSHAlgoConfig
 
 	listenerWg sync.WaitGroup
 	mu         sync.RWMutex
