@@ -2,8 +2,10 @@ package ssh
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync"
 
@@ -168,7 +170,20 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 						c.Close()
 						return
 					}
+
+					var chanaddr *net.TCPAddr
+					var ap netip.AddrPort
+					ap, err = netip.ParseAddrPort(fmt.Sprintf("%s:%d", originAddr, originPort))
+					if err != nil {
+						c.Close();
+						srv.logMsg("invalid address - %s:%s", originAddr, originPort)
+						return
+					}
+					chanaddr = &net.TCPAddr{IP: ap.Addr().AsSlice(), Port: int(ap.Port())}
+
+					srv.ReversePortForwardingCallback(ctx, chanaddr, 2, ln)
 					srv.logMsg("opened channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
+
 					go gossh.DiscardRequests(reqs)
 
 					var wg sync.WaitGroup
@@ -187,6 +202,8 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 						io.Copy(c, ch)
 					}()
 					wg.Wait()
+
+					srv.ReversePortForwardingCallback(ctx, chanaddr, -2, ln)
 					srv.logMsg("closed channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
 				}()
 			}
