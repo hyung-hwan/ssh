@@ -2,10 +2,8 @@ package ssh
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"strconv"
 	"sync"
 
@@ -120,7 +118,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			return false, []byte("port forwarding disabled - invalid address requested")
 		}
 
-		if !srv.ReversePortForwardingCallback(ctx, addr, 0, nil) {
+		if !srv.ReversePortForwardingCallback(ctx, addr, nil, 0, nil) {
 			return false, []byte("port forwarding is rejected")
 		}
 
@@ -131,7 +129,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 		}
 
 		srv.logMsg("port forward started on %s for %s", addr, conn.RemoteAddr().String())
-		srv.ReversePortForwardingCallback(ctx, addr, 1, ln)
+		srv.ReversePortForwardingCallback(ctx, addr, nil, 1, ln)
 		_, destPortStr, _ := net.SplitHostPort(ln.Addr().String())
 		destPort, _ := strconv.Atoi(destPortStr)
 		h.Lock()
@@ -171,17 +169,21 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 						return
 					}
 
-					var chanaddr *net.TCPAddr
-					var ap netip.AddrPort
-					ap, err = netip.ParseAddrPort(fmt.Sprintf("%s:%d", originAddr, originPort))
-					if err != nil {
-						c.Close();
-						srv.logMsg("invalid address - %s:%s", originAddr, originPort)
-						return
+					var claddr *net.TCPAddr
+					var craddr *net.TCPAddr
+					var ok bool
+					claddr, ok = c.LocalAddr().(*net.TCPAddr)
+					if !ok {
+						srv.logMsg("invalid channel local address %v", c.LocalAddr())
+						c.Close()
 					}
-					chanaddr = &net.TCPAddr{IP: ap.Addr().AsSlice(), Port: int(ap.Port())}
+					craddr, ok = c.RemoteAddr().(*net.TCPAddr)
+					if !ok {
+						srv.logMsg("invalid channel remote address %v", c.RemoteAddr())
+						c.Close()
+					}
 
-					srv.ReversePortForwardingCallback(ctx, chanaddr, 2, ln)
+					srv.ReversePortForwardingCallback(ctx, claddr, craddr, 2, ln)
 					srv.logMsg("opened channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
 
 					go gossh.DiscardRequests(reqs)
@@ -203,14 +205,14 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 					}()
 					wg.Wait()
 
-					srv.ReversePortForwardingCallback(ctx, chanaddr, -2, ln)
+					srv.ReversePortForwardingCallback(ctx, claddr, craddr, -2, ln)
 					srv.logMsg("closed channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
 				}()
 			}
 			h.Lock()
 			delete(h.forwards, addrstr)
 			h.Unlock()
-			srv.ReversePortForwardingCallback(ctx, addr, -1, nil)
+			srv.ReversePortForwardingCallback(ctx, addr, nil, -1, nil)
 			srv.logMsg("port forward ended on %s for %s", addr, conn.RemoteAddr().String())
 		}()
 		return true, gossh.Marshal(&remoteForwardSuccess{uint32(destPort)})
@@ -230,7 +232,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 		h.Lock()
 		ln, ok := h.forwards[addrstr]
 		h.Unlock()
-		srv.ReversePortForwardingCallback(ctx, addr, -1, nil)
+		srv.ReversePortForwardingCallback(ctx, addr, nil, -1, nil)
 		if ok {
 			srv.logMsg("port forward cancelled on %s for %s", addrstr, conn.RemoteAddr().String())
 			ln.Close()
