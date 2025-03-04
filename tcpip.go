@@ -145,6 +145,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 			}
 		}()
 		go func() {
+			var lwg sync.WaitGroup
 			for {
 				c, err := ln.Accept()
 				if err != nil {
@@ -161,7 +162,9 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 					OriginAddr: originAddr,
 					OriginPort: uint32(originPort),
 				})
+				lwg.Add(1)
 				go func() {
+					defer lwg.Done()
 					ch, reqs, err := conn.OpenChannel(forwardedTCPChannelType, payload)
 					if err != nil {
 						srv.logMsg("failed to open channel on %s:%d for %s:%d - %s", reqPayload.BindAddr, destPort, originAddr, originPort, err.Error())
@@ -209,6 +212,7 @@ func (h *ForwardedTCPHandler) HandleSSHRequest(ctx Context, srv *Server, req *go
 					srv.logMsg("closed channel on %s:%d for %s:%d", reqPayload.BindAddr, destPort, originAddr, originPort)
 				}()
 			}
+			lwg.Wait()
 			h.Lock()
 			delete(h.forwards, addrstr)
 			h.Unlock()
